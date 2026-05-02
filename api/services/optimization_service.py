@@ -1,4 +1,3 @@
-from geopy.distance import geodesic
 import polyline
 import math
 
@@ -16,7 +15,24 @@ def decode_route_geometry(encoded_geometry):
     return coordinates
 
 
-def find_nearby_stations(route_geometry, stations_df):
+# Faster distance approximation
+def fast_distance_miles(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+):
+
+    return math.sqrt(
+        (lat1 - lat2) ** 2 +
+        (lon1 - lon2) ** 2
+    ) * 69
+
+
+def find_nearby_stations(
+    route_geometry,
+    stations_df
+):
 
     nearby_stations = []
 
@@ -24,11 +40,18 @@ def find_nearby_stations(route_geometry, stations_df):
         route_geometry
     )
 
-    # Extract route lat/lon
-    route_lats = [point[0] for point in route_coordinates]
-    route_lons = [point[1] for point in route_coordinates]
+    # Extract route latitude/longitude
+    route_lats = [
+        point[0]
+        for point in route_coordinates
+    ]
 
-    # Bounding box filter
+    route_lons = [
+        point[1]
+        for point in route_coordinates
+    ]
+
+    # Bounding box filtering
     min_lat = min(route_lats) - 1
     max_lat = max(route_lats) + 1
 
@@ -42,27 +65,26 @@ def find_nearby_stations(route_geometry, stations_df):
         (stations_df["longitude"] <= max_lon)
     ]
 
-    # MUCH fewer stations now
+    # Check only filtered stations
     for _, station in filtered_stations.iterrows():
 
-        station_coords = (
-            station["latitude"],
-            station["longitude"]
-        )
+        station_lat = station["latitude"]
+        station_lon = station["longitude"]
 
-        # Fewer sampled route points
-        for point in route_coordinates[::100]:
+        # Larger route sampling for speed
+        for point in route_coordinates[::150]:
 
-            route_point = (
-                point[0],
-                point[1]
+            route_lat = point[0]
+            route_lon = point[1]
+
+            distance = fast_distance_miles(
+                station_lat,
+                station_lon,
+                route_lat,
+                route_lon
             )
 
-            distance = geodesic(
-                station_coords,
-                route_point
-            ).miles
-
+            # Nearby station threshold
             if distance <= 20:
 
                 nearby_stations.append({
@@ -78,9 +100,9 @@ def find_nearby_stations(route_geometry, stations_df):
                         2
                     ),
 
-                    "latitude": station["latitude"],
+                    "latitude": station_lat,
 
-                    "longitude": station["longitude"],
+                    "longitude": station_lon,
 
                     "distance_from_route_miles": round(
                         distance,
@@ -104,23 +126,37 @@ def select_cheapest_stops(
     )
 
     if fuel_stops_required == 0:
+
         return []
 
-    return sorted_stations[:fuel_stops_required]
+    return sorted_stations[
+        :fuel_stops_required
+    ]
 
 
-def calculate_total_cost(distance_miles, avg_price):
+def calculate_total_cost(
+    distance_miles,
+    avg_price
+):
 
-    gallons_needed = distance_miles / MPG
+    gallons_needed = (
+        distance_miles / MPG
+    )
 
-    total_cost = gallons_needed * avg_price
+    total_cost = (
+        gallons_needed * avg_price
+    )
 
     return round(total_cost, 2)
 
 
-def calculate_fuel_stops_required(distance_miles):
+def calculate_fuel_stops_required(
+    distance_miles
+):
 
     return max(
         0,
-        math.ceil(distance_miles / MAX_RANGE_MILES) - 1
+        math.ceil(
+            distance_miles / MAX_RANGE_MILES
+        ) - 1
     )
